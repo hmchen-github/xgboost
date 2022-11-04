@@ -6,7 +6,9 @@
 #include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
-#include <xgboost/c_api.h>
+#include <time.h>
+
+#include "xgboost/c_api.h"
 
 #define safe_xgboost(err)                                                      \
   if ((err) != 0) {                                                            \
@@ -22,8 +24,8 @@
     exit(1);                                                                   \
   }
 
-#define N_SAMPLES 128
-#define N_FEATURES 16
+#define N_SAMPLES 128000000
+#define N_FEATURES 64
 
 typedef BoosterHandle Booster;
 typedef DMatrixHandle DMatrix;
@@ -72,10 +74,10 @@ void Matrix_Random(Matrix *self, size_t n_samples, size_t n_features) {
 
 /* Array interface specified by numpy. */
 char const *Matrix_ArrayInterface(Matrix self) {
-  char const template[] = "{\"data\": [%lu, true], \"shape\": [%lu, %lu], "
+  char const t[] = "{\"data\": [%lu, true], \"shape\": [%lu, %lu], "
                           "\"typestr\": \"<f4\", \"version\": 3}";
   memset(self->_array_intrerface, '\0', sizeof(self->_array_intrerface));
-  sprintf(self->_array_intrerface, template, (size_t)self->data, self->shape[0],
+  sprintf(self->_array_intrerface, t, (size_t)self->data, self->shape[0],
           self->shape[1]);
   return self->_array_intrerface;
 }
@@ -89,12 +91,8 @@ float Matrix_At(Matrix self, size_t i, size_t j) {
 }
 
 void Matrix_Print(Matrix self) {
-  for (size_t i = 0; i < Matrix_NSamples(self); i++) {
-    for (size_t j = 0; j < Matrix_NFeatures(self); ++j) {
-      printf("%f, ", Matrix_At(self, i, j));
-    }
-  }
-  printf("\n");
+  printf("nsamples=%zu, nfeatures=%zu\n", Matrix_NSamples(self),
+         Matrix_NFeatures(self));
 }
 
 void Matrix_Free(Matrix self) {
@@ -110,6 +108,7 @@ void Matrix_Free(Matrix self) {
 }
 
 int main() {
+  time_t begin, end;
   Matrix X;
   Matrix y;
 
@@ -119,29 +118,36 @@ int main() {
   char const *X_interface = Matrix_ArrayInterface(X);
   char config[] = "{\"nthread\": 16, \"missing\": NaN}";
   DMatrix Xy;
+  time(&begin);
   /* Dense means "dense matrix". */
   safe_xgboost(XGDMatrixCreateFromDense(X_interface, config, &Xy));
+  time(&end);
+  printf("XGDMatrixCreateFromDense() took %ld seconds.\n",end - begin);
   /* Label must be in a contigious array. */
   safe_xgboost(XGDMatrixSetDenseInfo(Xy, "label", y->data, y->shape[0], 1));
 
   DMatrix cache[] = {Xy};
   Booster booster;
   /* Train a booster for demo. */
-  safe_xgboost(XGBoosterCreate(cache, 1, &booster));
-
-  size_t n_rounds = 10;
-  for (size_t i = 0; i < n_rounds; ++i) {
-    safe_xgboost(XGBoosterUpdateOneIter(booster, i, Xy));
-  }
-
-  /* Save the trained model in JSON format. */
-  safe_xgboost(XGBoosterSaveModel(booster, "model.json"));
-  safe_xgboost(XGBoosterFree(booster));
+  time(&begin);
+  // safe_xgboost(XGBoosterCreate(cache, 1, &booster));
+  //
+  // size_t n_rounds = 10;
+  // for (size_t i = 0; i < n_rounds; ++i) {
+  //   safe_xgboost(XGBoosterUpdateOneIter(booster, i, Xy));
+  // }
+  //
+  // /* Save the trained model in JSON format. */
+  // safe_xgboost(XGBoosterSaveModel(booster, "model.json"));
+  // safe_xgboost(XGBoosterFree(booster));
+  time(&end);
+  printf("Training took %ld seconds.\n",end - begin);
 
   /* Load it back for inference.  The save and load is not required, only shown here for
    * demonstration purpose. */
   safe_xgboost(XGBoosterCreate(NULL, 0, &booster));
   safe_xgboost(XGBoosterLoadModel(booster, "model.json"));
+  safe_xgboost(XGBoosterSetParam(booster, "nthread", "16"));
   {
     /* Run prediction with DMatrix object. */
     char const config[] =
@@ -154,8 +160,11 @@ int main() {
     /* Pointer to a thread local contigious array, assigned in prediction function. */
     float const *out_results;
 
+    time(&begin);
     safe_xgboost(XGBoosterPredictFromDMatrix(booster, Xy, config, &out_shape,
                                              &out_dim, &out_results));
+    time(&end);
+    printf("XGBoosterPredictFromDMatrix() took %ld seconds.\n",end - begin);
     if (out_dim != 2 || out_shape[0] != N_SAMPLES || out_shape[1] != 1) {
       fprintf(stderr, "Regression model should output prediction as vector.");
       exit(-1);
@@ -183,8 +192,11 @@ int main() {
     float const *out_results;
 
     char const *X_interface = Matrix_ArrayInterface(X);
+    time(&begin);
     safe_xgboost(XGBoosterPredictFromDense(booster, X_interface, config, NULL,
                                            &out_shape, &out_dim, &out_results));
+    time(&end);
+    printf("XGBoosterPredictFromDense() took %ld seconds.\n",end - begin);
 
     if (out_dim != 2 || out_shape[0] != N_SAMPLES || out_shape[1] != 1) {
       fprintf(stderr,

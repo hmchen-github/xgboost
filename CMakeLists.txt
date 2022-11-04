@@ -266,6 +266,17 @@ target_include_directories(runxgboost
 set_target_properties(runxgboost PROPERTIES OUTPUT_NAME xgboost)
 #-- End CLI for xgboost
 
+#-- Demo for xgboost
+add_executable(demo_inference ${xgboost_SOURCE_DIR}/demo/c-api/inference/inference.c)
+target_link_libraries(demo_inference PRIVATE objxgboost)
+target_include_directories(demo_inference
+  PRIVATE
+  ${xgboost_SOURCE_DIR}/include
+  ${xgboost_SOURCE_DIR}/dmlc-core/include
+  ${xgboost_SOURCE_DIR}/rabit/include
+)
+#-- End Demo for xgboost
+
 # Common setup for all targets
 foreach(target xgboost objxgboost dmlc runxgboost)
   xgboost_target_properties(${target})
